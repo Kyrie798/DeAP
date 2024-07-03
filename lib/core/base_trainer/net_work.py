@@ -1,14 +1,16 @@
 import os
 import torch
+import tqdm
 import torch.nn as nn
+import numpy as np
 from glog import logger
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
+from tools.metric import PSNRMeter
+from lib.core.base_trainer.DeAP import DeAP
 from lib.core.dataset.dataietr import TrainDataset, ValDataset
 from lib.core.base_trainer.utils.loss import PSNR_Loss
-from lib.core.base_trainer.DeAP import DeAP
-from tools.metric import PSNRMeter
 
 class Train(object):
     def __init__(self, cfg):
@@ -54,6 +56,7 @@ class Train(object):
                                              shuffle=False)
             
         self.model = DeAP().to(self.device)
+        self.load_weight()
         
         if self.ddp:
             self.model = nn.parallel.DistributedDataParallel(self.model, 
@@ -69,19 +72,23 @@ class Train(object):
                                                                     eta_min=self.cfg.TRAIN.min_lr)
         self.contrast_loss = nn.CrossEntropyLoss().to(self.device)
         self.psnr_loss = PSNR_Loss().to(self.device)
+    
+    def load_weight(self):
+        state_dict = torch.load("./pretrained/Stripformer_gopro.pth")
+        stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
+        self.model.module.backbone.load_state_dict(stripped_state_dict, strict=False)
 
     def train(self, epoch):
         for param_group in self.optimizer.param_groups:
             lr = param_group['lr']
-        logger.info(lr)
+        tq = tqdm.tqdm(self.train_dataloader, total=len(self.train_dataloader))
+        tq.set_description(f'Epoch {epoch}, lr {lr}')
+
+        loss_list = []
+        psnr_list = []
+        ssim_list = []
         self.model.train()
-
-        total_loss = 0.0
-        total_psnr = 0.0
-        total_ssim = 0.0
-        num_batches = len(self.train_dataloader)
-
-        for blur_patch_1, blur_patch_2, sharp_patch_1, sharp_patch_2 in self.train_dataloader:
+        for blur_patch_1, blur_patch_2, sharp_patch_1, sharp_patch_2 in tq:
             blur_patch_1 = blur_patch_1.to(self.device)
             blur_patch_2 = blur_patch_2.to(self.device)
             sharp_patch_1 = sharp_patch_1.to(self.device)
@@ -98,77 +105,83 @@ class Train(object):
                 loss = psnr_loss + 0.1 * contrast_loss
             loss.backward()
             self.optimizer.step()
-            
-            psnr, ssim = self.PSNRMeter.cal_psnr(restored, sharp_patch_1)
-            
-            total_loss += loss.item()
-            total_psnr += psnr
-            total_ssim += ssim
 
+            if epoch < self.cfg.TRAIN.MCFM_epoch:
+                loss_list.append(loss.item())
+                tq.set_postfix(loss="{:.4f}".format(np.mean(loss_list)))
+            else:
+                psnr, ssim = self.PSNRMeter.cal_psnr(restored, sharp_patch_1)         
+                loss_list.append(loss.item())
+                psnr_list.append(psnr)
+                ssim_list.append(ssim)
+                tq.set_postfix(loss="{:.4f}".format(np.mean(loss_list)), psnr="{:.4f}".format(np.mean(psnr_list)), ssim="{:.4f}".format(np.mean(ssim_list)))
+
+        # 汇总所有GPU的loss, psnr和ssim
         if self.ddp:
-            total_loss_tensor = torch.tensor(total_loss, device=self.device)
-            total_psnr_tensor = torch.tensor(total_psnr, device=self.device)
-            total_ssim_tensor = torch.tensor(total_ssim, device=self.device)
-            num_batches_tensor = torch.tensor(num_batches, device=self.device)
+            loss_tensor = torch.tensor(np.sum(loss_list), device=self.device)
+            psnr_tensor = torch.tensor(np.sum(psnr_list), device=self.device)
+            ssim_tensor = torch.tensor(np.sum(ssim_list), device=self.device)
 
-            torch.distributed.all_reduce(total_loss_tensor, op=torch.distributed.ReduceOp.SUM)
-            torch.distributed.all_reduce(total_psnr_tensor, op=torch.distributed.ReduceOp.SUM)
-            torch.distributed.all_reduce(total_ssim_tensor, op=torch.distributed.ReduceOp.SUM)
-            torch.distributed.all_reduce(num_batches_tensor, op=torch.distributed.ReduceOp.SUM)
+            # Reduce the tensors across all GPUs
+            torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.SUM)
+            torch.distributed.all_reduce(psnr_tensor, op=torch.distributed.ReduceOp.SUM)
+            torch.distributed.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
 
-            total_loss = total_loss_tensor.item() / num_batches_tensor.item()
-            total_psnr = total_psnr_tensor.item() / num_batches_tensor.item()
-            total_ssim = total_ssim_tensor.item() / num_batches_tensor.item()
-        else:
-            total_loss /= num_batches
-            total_psnr /= num_batches
-            total_ssim /= num_batches
+            world_size = torch.distributed.get_world_size()
+            loss_avg = loss_tensor.item() / (len(loss_list) * world_size)
+            psnr_avg = psnr_tensor.item() / (len(psnr_list) * world_size)
+            ssim_avg = ssim_tensor.item() / (len(ssim_list) * world_size)
+        if self.local_rank == 0:
+            logger.info(f'Epoch {epoch}, Loss: {loss_avg:.4f}, PSNR: {psnr_avg:.4f}, SSIM: {ssim_avg:.4f}')
 
-        logger.info(f'Epoch {epoch}: Loss {total_loss}, PSNR {total_psnr}, SSIM {total_ssim}')
+        tq.close()
 
     def val(self):
+        tq = tqdm.tqdm(self.val_dataloader, total=len(self.val_dataloader))
+        tq.set_description('Validation')
+        psnr_list = []
+        ssim_list = []
         self.model.eval()
-        total_psnr = 0.0
-        total_ssim = 0.0
-        num_batches = len(self.val_dataloader)
         
-        for blur, sharp in self.val_dataloader:
+        for blur, sharp in tq:
             with torch.no_grad():
                 blur = blur.to(self.device)
                 sharp = sharp.to(self.device)
                 restored = self.model(blur, blur)
                 psnr, ssim = self.PSNRMeter.cal_psnr(restored, sharp)
-                
-                total_psnr += psnr
-                total_ssim += ssim
-
+                psnr_list.append(psnr)
+                ssim_list.append(ssim)
+                tq.set_postfix(psnr="{:.4f}".format(np.mean(psnr_list)), ssim="{:.4f}".format(np.mean(ssim_list)))
+        
+        # 汇总所有GPU的psnr和ssim
         if self.ddp:
-            total_psnr_tensor = torch.tensor(total_psnr, device=self.device)
-            total_ssim_tensor = torch.tensor(total_ssim, device=self.device)
-            num_batches_tensor = torch.tensor(num_batches, device=self.device)
+            psnr_tensor = torch.tensor(np.sum(psnr_list), device=self.device)
+            ssim_tensor = torch.tensor(np.sum(ssim_list), device=self.device)
 
-            torch.distributed.all_reduce(total_psnr_tensor, op=torch.distributed.ReduceOp.SUM)
-            torch.distributed.all_reduce(total_ssim_tensor, op=torch.distributed.ReduceOp.SUM)
-            torch.distributed.all_reduce(num_batches_tensor, op=torch.distributed.ReduceOp.SUM)
+            # Reduce the tensors across all GPUs
+            torch.distributed.all_reduce(psnr_tensor, op=torch.distributed.ReduceOp.SUM)
+            torch.distributed.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
 
-            total_psnr = total_psnr_tensor.item() / num_batches_tensor.item()
-            total_ssim = total_ssim_tensor.item() / num_batches_tensor.item()
-        else:
-            total_psnr /= num_batches
-            total_ssim /= num_batches
+            world_size = torch.distributed.get_world_size()
+            psnr_avg = psnr_tensor.item() / (len(psnr_list) * world_size)
+            ssim_avg = ssim_tensor.item() / (len(ssim_list) * world_size)
 
-        logger.info(f'Validation: PSNR {total_psnr}, SSIM {total_ssim}')
+        if self.local_rank == 0:
+            logger.info(f'Validation, PSNR: {psnr_avg:.4f}, SSIM: {ssim_avg:.4f}')
+
+        tq.close()
 
     def loop(self):
         for epoch in range(self.epochs):
             if self.ddp:
                 self.train_sampler.set_epoch(epoch)
             self.train(epoch=epoch)
-            self.val()
+            if epoch % 200 == 0 or epoch == (self.epochs - 1):
+                self.val()
             self.scheduler.step()
 
             if self.local_rank == 0 and not os.access(self.cfg.MODEL.model_path, os.F_LOCK):
                 os.mkdir(self.cfg.MODEL.model_path)
-            if self.local_rank == 0:
-                torch.save(self.model.module.state_dict(), self.save_dir + '{epoch}.pth')
+            if self.local_rank == 0 and epoch % 200 == 0:
+                torch.save(self.model.module.state_dict(), self.cfg.MODEL.model_path + '/DeAP_{}.pth'.format(epoch))
             torch.cuda.empty_cache()

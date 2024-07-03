@@ -1,12 +1,11 @@
 import os
 import cv2
-import aug
-from copy import deepcopy
+import numpy as np
 from functools import partial
 from glob import glob
 from hashlib import sha1
-import numpy as np
 from torch.utils.data import Dataset
+from lib.core.dataset.aug import get_normalize, get_transforms
 
 def subsample(data, bounds, hash_fn, n_buckets=100, salt=''):
     data = list(data)
@@ -37,8 +36,8 @@ class TrainDataset(Dataset):
         blur, sharp = map(list, zip(*data))
         self.blur = blur
         self.sharp = sharp
-        self.transform_fn = aug.get_transforms(size=cfg.DATA.Patch_size)
-        self.normalize_fn = aug.get_normalize()
+        self.transform_fn = get_transforms(size=cfg.DATA.Patch_size)
+        self.normalize_fn = get_normalize()
 
     def _preprocess(self, img, res):
         def transpose(x):
@@ -50,7 +49,7 @@ class TrainDataset(Dataset):
         return len(self.blur)
 
     def __getitem__(self, idx):
-        blur, sharp = self.data_a[idx], self.data_b[idx]
+        blur, sharp = self.blur[idx], self.sharp[idx]
         blur, sharp = map(_read_img, (blur, sharp))
 
         blur_patch_1, sharp_patch_1 = self.transform_fn(blur, sharp)
@@ -63,11 +62,11 @@ class TrainDataset(Dataset):
 
 class ValDataset(Dataset):
     def __init__(self, cfg):
-        files_a, files_b = map(lambda x: sorted(glob(x, recursive=True)), (cfg.DATA.val_blur, cfg.DATA.val_sharp))
+        blur, sharp = map(lambda x: sorted(glob(x, recursive=True)), (cfg.DATA.val_blur, cfg.DATA.val_sharp))
 
-        self.data_a = files_a
-        self.data_b = files_b
-        self.normalize_fn = aug.get_normalize()
+        self.blur = blur
+        self.sharp = sharp
+        self.normalize_fn = get_normalize()
 
     def _preprocess(self, img, res):
         def transpose(x):
@@ -76,10 +75,10 @@ class ValDataset(Dataset):
         return map(transpose, self.normalize_fn(img, res))
 
     def __len__(self):
-        return len(self.data_a)
+        return len(self.blur)
 
     def __getitem__(self, idx):
-        blur, sharp = self.data_a[idx], self.data_b[idx]
+        blur, sharp = self.blur[idx], self.sharp[idx]
         blur, sharp = map(_read_img, (blur, sharp))
         blur, sharp = self._preprocess(blur, sharp)
         return blur, sharp
