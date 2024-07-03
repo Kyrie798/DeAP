@@ -75,8 +75,7 @@ class Train(object):
     
     def load_weight(self):
         state_dict = torch.load("./pretrained/Stripformer_gopro.pth")
-        stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
-        self.model.module.backbone.load_state_dict(stripped_state_dict, strict=False)
+        self.model.backbone.load_state_dict(state_dict, strict=False)
 
     def train(self, epoch):
         for param_group in self.optimizer.param_groups:
