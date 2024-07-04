@@ -3,7 +3,7 @@ from lib.utils.seed_utils import seed_everything
 
 config = edict()
 config.TRAIN = edict()
-config.TRAIN.DDP = True
+config.TRAIN.DDP = False
 config.TRAIN.batch_size = 4
 config.TRAIN.process_num = 4
 config.TRAIN.lr = 1.e-4

@@ -48,10 +48,10 @@ class ResNet(nn.Module):
             return inter
 
 class MCFM(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super(MCFM, self).__init__()
         dim = 256
-        self.moco = MoCo(base_encoder=ResNet, dim=dim)
+        self.moco = MoCo(base_encoder=ResNet, dim=dim, cfg=cfg)
 
     def forward(self, x_query, x_key):
         if self.training:

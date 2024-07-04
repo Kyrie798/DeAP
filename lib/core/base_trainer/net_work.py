@@ -55,8 +55,7 @@ class Train(object):
                                              num_workers=self.cfg.TRAIN.process_num, 
                                              shuffle=False)
             
-        self.model = DeAP().to(self.device)
-        self.load_weight()
+        self.model = DeAP(cfg).to(self.device)
         
         if self.ddp:
             self.model = nn.parallel.DistributedDataParallel(self.model, 
@@ -66,6 +65,7 @@ class Train(object):
         else:
             self.model = nn.DataParallel(self.model)
         
+        self.load_weight()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.TRAIN.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 
                                                                     T_max=self.epochs,
@@ -75,7 +75,8 @@ class Train(object):
     
     def load_weight(self):
         state_dict = torch.load("./pretrained/Stripformer_gopro.pth")
-        self.model.backbone.load_state_dict(state_dict, strict=False)
+        stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
+        self.model.module.backbone.load_state_dict(stripped_state_dict, strict=False)
 
     def train(self, epoch):
         for param_group in self.optimizer.param_groups:
@@ -130,9 +131,7 @@ class Train(object):
             loss_avg = loss_tensor.item() / (len(loss_list) * world_size)
             psnr_avg = psnr_tensor.item() / (len(psnr_list) * world_size)
             ssim_avg = ssim_tensor.item() / (len(ssim_list) * world_size)
-        if self.local_rank == 0:
             logger.info(f'Epoch {epoch}, Loss: {loss_avg:.4f}, PSNR: {psnr_avg:.4f}, SSIM: {ssim_avg:.4f}')
-
         tq.close()
 
     def val(self):
@@ -164,8 +163,6 @@ class Train(object):
             world_size = torch.distributed.get_world_size()
             psnr_avg = psnr_tensor.item() / (len(psnr_list) * world_size)
             ssim_avg = ssim_tensor.item() / (len(ssim_list) * world_size)
-
-        if self.local_rank == 0:
             logger.info(f'Validation, PSNR: {psnr_avg:.4f}, SSIM: {ssim_avg:.4f}')
 
         tq.close()

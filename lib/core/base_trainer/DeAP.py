@@ -6,14 +6,13 @@ from lib.core.base_trainer.Stripformer import Stripformer
 
 # Learning Degradation-Aware Prior
 class DeAP(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super(DeAP, self).__init__()
-        
         # Stripformer
         self.backbone = Stripformer()
 
         # Momentum Contrast Feature Module
-        self.MCFM = MCFM()
+        self.MCFM = MCFM(cfg)
 
         self.down1 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),

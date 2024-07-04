@@ -13,7 +13,7 @@ class MoCo(nn.Module):
     https://arxiv.org/abs/1911.05722
     """
 
-    def __init__(self, base_encoder, dim=256, K=65536, m=0.999, T=0.07):
+    def __init__(self, base_encoder, dim=256, K=65536, m=0.999, T=0.07, cfg=None):
         """
         dim: feature dimension (default: 128)
         K: queue size; number of negative keys (default: 65536)
@@ -21,7 +21,7 @@ class MoCo(nn.Module):
         T: softmax temperature (default: 0.07)
         """
         super(MoCo, self).__init__()
-
+        self.cfg = cfg
         self.K = K
         self.m = m
         self.T = T
@@ -56,7 +56,8 @@ class MoCo(nn.Module):
     @torch.no_grad()
     def _dequeue_and_enqueue(self, keys):
         # gather keys before updating queue
-        keys = concat_all_gather(keys)
+        if self.cfg.TRAIN.DDP:
+            keys = concat_all_gather(keys)
 
         batch_size = keys.shape[0]
 
@@ -135,13 +136,15 @@ class MoCo(nn.Module):
                 self._momentum_update_key_encoder()  # update the key encoder
 
                 # shuffle for making use of BN
-                im_k, idx_unshuffle = self._batch_shuffle_ddp(im_k)
+                if self.cfg.TRAIN.DDP:
+                    im_k, idx_unshuffle = self._batch_shuffle_ddp(im_k)
 
                 _, k = self.encoder_k(im_k)  # keys: NxC
                 k = nn.functional.normalize(k, dim=1)
 
                 # undo shuffle
-                k = self._batch_unshuffle_ddp(k, idx_unshuffle)
+                if self.cfg.TRAIN.DDP:
+                    k = self._batch_unshuffle_ddp(k, idx_unshuffle)
 
             # compute logits
             # Einstein sum is more intuitive
