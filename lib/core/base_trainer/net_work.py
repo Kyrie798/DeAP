@@ -116,13 +116,11 @@ class Train(object):
                 ssim_list.append(ssim)
                 tq.set_postfix(loss="{:.4f}".format(np.mean(loss_list)), psnr="{:.4f}".format(np.mean(psnr_list)), ssim="{:.4f}".format(np.mean(ssim_list)))
 
-        # 汇总所有GPU的loss, psnr和ssim
         if self.ddp:
             loss_tensor = torch.tensor(np.sum(loss_list), device=self.device)
             psnr_tensor = torch.tensor(np.sum(psnr_list), device=self.device)
             ssim_tensor = torch.tensor(np.sum(ssim_list), device=self.device)
 
-            # Reduce the tensors across all GPUs
             torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.SUM)
             torch.distributed.all_reduce(psnr_tensor, op=torch.distributed.ReduceOp.SUM)
             torch.distributed.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
@@ -151,12 +149,10 @@ class Train(object):
                 ssim_list.append(ssim)
                 tq.set_postfix(psnr="{:.4f}".format(np.mean(psnr_list)), ssim="{:.4f}".format(np.mean(ssim_list)))
         
-        # 汇总所有GPU的psnr和ssim
         if self.ddp:
             psnr_tensor = torch.tensor(np.sum(psnr_list), device=self.device)
             ssim_tensor = torch.tensor(np.sum(ssim_list), device=self.device)
 
-            # Reduce the tensors across all GPUs
             torch.distributed.all_reduce(psnr_tensor, op=torch.distributed.ReduceOp.SUM)
             torch.distributed.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
 
@@ -179,5 +175,5 @@ class Train(object):
             if self.local_rank == 0 and not os.access(self.cfg.MODEL.model_path, os.F_LOCK):
                 os.mkdir(self.cfg.MODEL.model_path)
             if self.local_rank == 0 and epoch % 200 == 0:
-                torch.save(self.model.module.state_dict(), self.cfg.MODEL.model_path + '/DeAP_{}.pth'.format(epoch))
+                torch.save(self.model.state_dict(), self.cfg.MODEL.model_path + '/DeAP_{}.pth'.format(epoch))
             torch.cuda.empty_cache()
