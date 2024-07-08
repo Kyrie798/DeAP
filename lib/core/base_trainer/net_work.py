@@ -73,10 +73,15 @@ class Train(object):
         self.contrast_loss = nn.CrossEntropyLoss().to(self.device)
         self.psnr_loss = PSNR_Loss().to(self.device)
     
-    def load_weight(self):
+    def load_weight_backbone(self):
         state_dict = torch.load("./pretrained/Stripformer_gopro.pth")
         stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
         self.model.module.backbone.load_state_dict(stripped_state_dict, strict=False)
+
+    def load_weight(self):
+        state_dict = torch.load("./weights/final_DeAP_pretrain.pth")
+        stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
+        self.netG.module.load_state_dict(stripped_state_dict)
 
     def train(self, epoch):
         for param_group in self.optimizer.param_groups:

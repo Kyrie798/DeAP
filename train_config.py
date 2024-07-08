@@ -23,7 +23,7 @@ config.DATA.train_blur = './datasets/GoPro/train/blur/**/*.png'
 config.DATA.train_sharp = './datasets/GoPro/train/sharp/**/*.png'
 config.DATA.val_blur = './datasets/GoPro/test/blur/**/*.png'
 config.DATA.val_sharp = './datasets/GoPro/test/sharp/**/*.png'
-config.DATA.Patch_size = 256
+config.DATA.Patch_size = 512
 
 config.SEED = 10086
 seed_everything(config.SEED)
