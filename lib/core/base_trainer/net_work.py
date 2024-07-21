@@ -65,7 +65,7 @@ class Train(object):
         else:
             self.model = nn.DataParallel(self.model)
         
-        self.load_weight()
+        self.load_weight_backbone()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.TRAIN.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 
                                                                     T_max=self.epochs,
