@@ -181,4 +181,6 @@ class Train(object):
                 os.mkdir(self.cfg.MODEL.model_path)
             if self.local_rank == 0 and epoch % 200 == 0:
                 torch.save(self.model.state_dict(), self.cfg.MODEL.model_path + '/DeAP_{}.pth'.format(epoch))
+            if self.local_rank == 0 and epoch == (self.epochs - 1):
+                torch.save(self.model.state_dict(), self.cfg.MODEL.model_path + '/final_DeAP.pth')
             torch.cuda.empty_cache()
