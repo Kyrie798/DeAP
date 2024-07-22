@@ -9,7 +9,7 @@ config.TRAIN.process_num = 4
 config.TRAIN.lr = 1.e-4
 config.TRAIN.min_lr = 1.e-7
 config.TRAIN.epochs = 3000
-config.TRAIN.MCFM_epoch = 0
+config.TRAIN.MCFM_epoch = 100
 
 config.TEST = edict()
 config.TEST.blur = './datasets/GoPro/test/blur/'

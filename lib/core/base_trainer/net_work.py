@@ -173,7 +173,7 @@ class Train(object):
             if self.ddp:
                 self.train_sampler.set_epoch(epoch)
             self.train(epoch=epoch)
-            if epoch % 200 == 0 or epoch == (self.epochs - 1):
+            if (epoch % 200 == 0 and epoch > 0) or epoch == (self.epochs - 1):
                 self.val()
             self.scheduler.step()
 
