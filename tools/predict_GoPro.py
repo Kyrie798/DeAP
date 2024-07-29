@@ -13,7 +13,7 @@ def main():
     if not os.access(out_path, os.F_LOCK):
         os.mkdir(out_path)
     model = DeAP().cuda()
-    model.load_state_dict(torch.load('./checkpoint/0.pth'))
+    model.load_state_dict(torch.load('./checkpoint/final_DeAP.pth'))
     model = model.eval()
 
     iteration = 0
