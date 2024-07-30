@@ -65,7 +65,7 @@ class Train(object):
         else:
             self.model = nn.DataParallel(self.model)
         
-        self.load_weight_backbone()
+        self.load_weight()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.TRAIN.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 
                                                                     T_max=self.epochs,
@@ -79,9 +79,9 @@ class Train(object):
         self.model.module.backbone.load_state_dict(stripped_state_dict, strict=False)
 
     def load_weight(self):
-        state_dict = torch.load("./weights/final_DeAP_pretrain.pth")
+        state_dict = torch.load("./checkpoint/final_DeAP_pretrain.pth")
         stripped_state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
-        self.netG.module.load_state_dict(stripped_state_dict)
+        self.model.module.load_state_dict(stripped_state_dict)
 
     def train(self, epoch):
         for param_group in self.optimizer.param_groups:
