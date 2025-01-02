@@ -1,6 +1,10 @@
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import cv2
 import torch
+import torch.nn as nn
 import numpy as np
 import torchvision
 import torch.nn.functional as F
@@ -11,9 +15,10 @@ from lib.core.base_trainer.DeAP import DeAP
 def main():
     blur_path = cfg.TEST.blur
     out_path = cfg.TEST.restored
-    if not os.access(out_path, os.F_LOCK):
+    if not os.path.exists(out_path):
         os.mkdir(out_path)
-    model = DeAP().cuda()
+    model = DeAP(cfg).cuda()
+    model = nn.DataParallel(model)
     model.load_state_dict(torch.load('./checkpoint/final_DeAP.pth'))
     model = model.eval()
 
